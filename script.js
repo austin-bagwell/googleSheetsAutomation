@@ -3,30 +3,16 @@ const nsDataSheet = SpreadsheetApp.getActive().getSheetByName("NS Data");
 const datasetSheet = SpreadsheetApp.getActive().getSheetByName("Dataset");
 const dcInfoSheet = SpreadsheetApp.getActive().getSheetByName("DC Info");
 
-// TODO
-// add some actual error handling - try/catch, maybe a way to email me or report owner when errors occur
+const datasetData = SpreadsheetApp.getActive()
+  .getSheetByName("Dataset")
+  .getDataRange()
+  .getValues();
+const datasetHeaders = datasetData[0];
 
-// WORKFLOW
-/*
-get CSVs from gmail
-do data cleanup on them as needed (Ex: remove # from OD PRO number)
-NORMALIZE shipment data (OD/Estes/future carriers)
-put normalized shipping info into one array || array of objects
-pull dataset into working memory
-add new shipments from NS report into dataset
-use normalized shipping data to update the dataset with new info (ex. order was delivered)
-push updated dataset back into spreadsheet
-autofill any 'right hand' formula columns (don't like this approach but... meh)
-*/
+// TODO - so much error handling to add good god
 
 function main() {
-  // TODO move this dataset data to a more relevant place
-  const datasetData = SpreadsheetApp.getActive()
-    .getSheetByName("Dataset")
-    .getDataRange()
-    .getValues();
-
-  // STEP 0 - GET DATA FROM CSV REPORTS
+  // GET AND PARSE CSV REPORTS FROM GMAIL
   function getCSVFromGmail(label) {
     const gmailThread = GmailApp.search(`label:${label}`, 0, 1)[0];
     const attachments = gmailThread.getMessages()[0].getAttachments();
@@ -41,135 +27,192 @@ function main() {
     return parsedCSV;
   }
 
+  // DO INITIAL DATA CLEANUP ON REPORTS -aka remove # from OD PO nums
+  function cleanODReport(arr) {
+    const poNumber = arr[0].indexOf("Purchase Order Number");
+    const body = arr.slice(1);
+    body.forEach((row) => {
+      row[poNumber] = row[poNumber].replace("#", "");
+    });
+    return arr;
+  }
+
+  // NORMALIZE REPORT HEADERS
+  function replaceSpaces(arr) {
+    return arr.map((header) => header.replaceAll(" ", "_"));
+  }
+
+  function normalizeNetsuiteHeaders(arr) {
+    const headers = arr.slice(0, 1).flat();
+
+    const location = headers.indexOf("Location");
+    const fillDate = headers.indexOf("Fulfillment Date");
+    const nsMemo = headers.indexOf("Memo");
+    const name = headers.indexOf("Name");
+    const po = headers.indexOf("Customer PO #");
+    headers[location] = "Ship From";
+    headers[fillDate] = "Scheduled Ship Date";
+    headers[nsMemo] = "Due Date";
+    headers[name] = "DC Name";
+    headers[po] = "PO #";
+
+    const cleanHeaders = replaceSpaces(headers);
+    arr[0] = cleanHeaders;
+    return arr;
+  }
+
+  function normalizeODHeaders(arr) {
+    const headers = arr.slice(0, 1).flat();
+    const body = arr.slice(0, 1);
+
+    const poNum = headers.indexOf("Purchase Order Number");
+    const shipDate = headers.indexOf("Actual Pickup Date");
+    const pro = headers.indexOf("OD Pro#");
+    const arriveAtYard = headers.indexOf("Arrival Date");
+    const delivery = headers.indexOf("Delivery Date");
+    const pallets = headers.indexOf("Pieces (skids/pallets)");
+
+    headers[poNum] = "PO #";
+    headers[shipDate] = "Actual Ship Date";
+    headers[pro] = "PRO Number";
+    headers[arriveAtYard] = "Arrived At Carrier Yard";
+    headers[delivery] = "Delivery Date";
+    headers[pallets] = "Pallet Count";
+
+    const cleanHeaders = replaceSpaces(headers);
+    arr[0] = cleanHeaders;
+    return arr;
+  }
+
+  function normalizeEstesHeaders(arr) {}
+
+  // CONVERT NETSUITE REPORT INTO ARRAY OF OBJECTS
+  // CONVERT NORMALIZED SHIPMET DETAILS INTO ARRAY OF OBJECTS
+
+  // TODO
+  // modify func so that it accepts N number of arrays
+  // that way, I can pass it it multiple reports at once
+  // and the normalized data in those reports will be
+  // all pushed into the same array at once
+  // Ex: function two2Arr(targetHeaders, ...arrays) {};
+
+  function convert2DArrayToArrayOfObjects(targetHeaders, arr) {
+    const objects = [];
+    const headers = arr.slice(0, 1).flat();
+    const body = arr.slice(1);
+
+    for (let row = 0; row < body.length; row++) {
+      const shipmentDetail = {};
+      for (let col = 0; col < headers.length; col++) {
+        const key = headers[col];
+        const val = body[row][col];
+
+        if (targetHeaders.includes(key)) {
+          shipmentDetail[key] = val;
+        } else {
+          continue;
+        }
+      }
+      objects.push(shipmentDetail);
+    }
+    return objects;
+  }
+
+  // EXAMPLE WORKFLOW
+  // getting, cleaning, normalizing CSV, distilling all relevant
+  // shipment details into an array of objects
   const gmailLabels = [
     "estes-ship-report",
     "odfl-ship-report",
     "ns-ltl-report",
   ];
-  const estesReport = getCSVFromGmail(gmailLabels[0]);
+  const shipmentDetailHeaders = replaceSpaces([
+    "Actual Ship Date",
+    "Arrived At Carrier Yard",
+    "PO #",
+    "Delivery Date",
+    "PRO Number",
+    "Pallet Count",
+    "Weight",
+  ]);
   const oldDominionReport = getCSVFromGmail(gmailLabels[1]);
+  // TODO add data cleanup to normalization function?
+  const cleanOD = cleanODReport(oldDominionReport);
+  const normalOD = normalizeODHeaders(cleanOD);
   const netsuiteReport = getCSVFromGmail(gmailLabels[2]);
-
-  // FIXME - may not need this-updated NS report to use 'shipping addressee' instead, which is already cleaner
-  // will require me to do some find and replace on actual dataset but that's easier than maintaining a helper sheet
-  // STEP 1 - CLEAN DATA FROM CSV REPORTS
-  // -- Netsuite customer names as shown on the CSV report need tidying up
-  // -- this uses the names found in DC Info instead of the ugly Netsuite customer names
-  function cleanNetsuiteCSVReport() {
-    const dcInfo = SpreadsheetApp.getActive()
-      .getSheetByName("DC Info")
+  const normalNetsuite = normalizeNetsuiteHeaders(netsuiteReport);
+  const nsHeaders = replaceSpaces(
+    SpreadsheetApp.getActive()
+      .getSheetByName("Dataset")
       .getDataRange()
-      .getValues();
-    const dcInfoCustID = dcInfo[0].indexOf("Internal ID");
-    const dcInfoName = dcInfo[0].indexOf("Name");
+      .getValues()
+      .slice(0, 1)
+      .flat()
+  );
+  const odShipmentDetails = convert2DArrayToArrayOfObjects(
+    shipmentDetailHeaders,
+    normalOD
+  );
+  const netsuiteObjects = convert2DArrayToArrayOfObjects(
+    nsHeaders,
+    normalNetsuite
+  );
+  // Logger.log(odShipmentDetails[0]);
+  // Logger.log(netsuiteObjects);
 
-    const netsuiteHeaders = netsuiteReport.slice(0, 1).flat();
-    const internalID = netsuiteHeaders.indexOf("Internal ID");
-    const name = netsuiteHeaders.indexOf("Name");
-    const netsuiteBody = netsuiteReport.slice(1);
+  // CONVERT ACTIVE SHIPMENT RANGE ROWS INTO ARRAY OF OBJECTS
+  // I want everything to be a string, but I'm getting different
+  // datatypes from datasetRange
 
-    const dcInfoObject = {};
-    dcInfo.forEach((row) => {
-      dcInfoObject[row[dcInfoCustID].toString()] = row[dcInfoName];
-    });
-    netsuiteBody.forEach((row) => {
-      row[name] = dcInfoObject[row[internalID.toString()]];
-    });
-    return netsuiteBody;
-  }
-
-  // OD sends purchase order field with a '#' prefix for some reason
-  function cleanOldDominionCSVReport() {
-    const oldDominionHeaders = oldDominionReport.slice(0, 1).flat();
-    const oldDominionBody = oldDominionReport.slice(1);
-    const poNumber = oldDominionHeaders.indexOf("Purchase Order Number");
-    oldDominionBody.forEach((row) => {
-      row[poNumber] = row[poNumber].replace("#", "");
-    });
-    return oldDominionBody;
-  }
-
-  // TODO determine what cleanup needs to happen for Estes
-  // function cleanEstesCSVReport() {};
-
-  const cleanedNetsuiteData = cleanNetsuiteCSVReport();
-  const cleanedOldDominionData = cleanOldDominionCSVReport();
-  // const cleanedEstesData = cleanEstesCSVReport();
-
-  // STEP 2 - NORMALIZE SHIPMENT DATA (OD/Estes/other carriers)
-  // STEP a - define a class that describes 'normalized' data that is expected
-  // aka info that relates to these headers:
-  // [actual ship, arrived at yard, delivery date, proNum, pallet count, weight];
-  // -- OD/estes/any carrier will require their own normalization function
-
-  class NormalizedShipment {
-    constructor(
-      poNum,
-      shipDate,
-      arrivedAtYard,
-      delivered,
-      pro,
-      pallets,
-      weight
-    ) {
-      this.poNum = poNum;
-      this.shipDate = shipDate;
-      this.arrivedAtYard = arrivedAtYard;
-      this.delivered = delivered;
-      this.pro = pro;
-      this.pallets = pallets;
-      this.weight = weight;
-    }
-  }
-
-  // 2/15 evening - it works but it is so ugly
-  // extracting specific indexes of data from a 2D array
-  // gotta be a way to extract this logic to make it reusable for other carrier data
-
-  function normalizeOldDominionData() {
-    // for every row of the body, I want to return a NormalizedShipment object
-    // those objects get pushed into an array
-    const normalized = [];
-    const odHeaders = oldDominionReport.slice(0, 1).flat();
-
-    const headersIWant = [
-      "Delivery Date",
-      "Arrival Date",
-      "Actual Pickup Date",
-      "OD Pro#",
-      "Purchase Order Number",
-      "Pieces (skids/pallets)",
-      "Weight",
-    ];
-    const indexesOfHeadersIWant = [];
-    headersIWant.forEach((header) => {
-      indexesOfHeadersIWant.push(odHeaders.indexOf(header));
-    });
-    const odBody = oldDominionReport.slice(1);
-    const testI = indexesOfHeadersIWant[4];
-
-    for (let row = 0; row < odBody.length; row++) {
-      const newRow = [];
-      const oldRow = odBody[row];
-      for (let col = 0; col < indexesOfHeadersIWant.length; col++) {
-        const magicIndex = indexesOfHeadersIWant[col];
-        newRow.push(oldRow[magicIndex]);
+  function getOldestActiveShipmentIndex() {
+    const deliveryDate = datasetHeaders.indexOf("Delivery Date");
+    let indexOfOldestActiveShipment;
+    for (let i = 0; i < datasetData.length; i++) {
+      if (datasetData[i][deliveryDate] === "") {
+        indexOfOldestActiveShipment = i;
+        break;
       }
-      normalized.push(newRow);
     }
-    return normalized;
+    return indexOfOldestActiveShipment;
   }
-  // Logger.log(normalizeOldDominionData())
-  normalizeOldDominionData();
 
-  // STEP 3 - ADD NEW NS DATA TO DATASET
-  // -- Array.of(dataset.length) => [,,,,,, etc.] then add NS data into the correct index
+  // const startOfActiveShipmentRange = getOldestActiveShipmentIndex();
+  const shipmentHeaders = replaceSpaces(datasetData[0].slice(0, 13));
+  const activeShipmentsArray = datasetData.slice(
+    getOldestActiveShipmentIndex()
+  );
+  // this removes the 'right hand formula' columns from activeShipmentsArray
+  for (row of activeShipmentsArray) {
+    row.splice(shipmentHeaders.length);
+  }
+  // this adds a header row which is needed for the fancy formula
+  activeShipmentsArray.unshift(shipmentHeaders);
 
-  // STEP 4 - UPDATE DATASET WITH NORMALIZED SHIPMENT DATA
+  // Logger.log(activeShipmentsArray[0]);
+  // Logger.log(activeShipmentsArray[1]);
+
+  const activeShipmentObjects = convert2DArrayToArrayOfObjects(
+    shipmentHeaders,
+    activeShipmentsArray
+  );
+  Logger.log(activeShipmentObjects[0]);
+
+  // PUSH NEW NETSUITE ORDER OBJECTS INTO ACTIVE SHIPMENTS ARRAY
+  // UPDATE ACTIVE SHIPMENT OBJECTS WITH NEW SHIPPING DETAILS
+
+  // GET ACTIVE SHIPMENTS AND CONVERT TO SHIPMENT OBJECTS
+
+  // STEP 4 - UPDATE ACTIVESHIPMENTRANGE SHIPMENT OBJECTS WITH NORMALIZED SHIPMENT DATA
   // -- if dataset[row][colToUpdate] === '', add the normalData[colToUpdate] value (could sitll be "", just means no new data)
   // STEP 5 - PUSH UPDATED DATASET BACK TO SPREADSHEET
   // STEP 6 - AUTOFILL 'RIGHT HAND' SHEETS FORMULAS
   // -- These formulas feed the reporting dashboard stuff
+
+  // ACTUALLY CALL/USE ALL FUNCTIONS DEFINED ABOVE IN THIS AREA
+  // const gmailLabels = ['estes-ship-report','odfl-ship-report','ns-ltl-report'];
+  const estesReport = getCSVFromGmail(gmailLabels[0]);
+  // const oldDominionReport = getCSVFromGmail(gmailLabels[1])
+  // const netsuiteReport = getCSVFromGmail(gmailLabels[2]);
 }
 
 // autofills the 8 columns of sheets formulas on the right hand side of the dataset sheet.
@@ -195,79 +238,4 @@ function pasteValsOnlyEquiv() {
   datasetSheet
     .getRange(2, 1, datasetSheet.getLastRow(), 13)
     .setValues(rngCopyValsOnly);
-}
-
-/*
-
-class Shipment(...[headers,from,datasetSheet,excluding,sheetsFormulas]) {
-  // should they be named exactly as they appear (PO #) O
-  // should they be normalized?
-  // could do an inbetween and 'PO #'.replace(" ", "_"), convert back for checking index equality
-}
-
-// would require manually setting my headers range & all updatable cols would 
-// need to be contiguous to avoid errors probably - slightly dangerous?
-const relevantDatasetHeaders = datasetHeaders.slice(0,14)
-
-datasetRows.push(all new NS orders in as an array[id,name,etc., fill remaining length with '' if needed])
-then 
-beginnng at the oldest in-transit shipment, convert all rows to new Shipments - push those into an array
-then
-use Object.assign(new Shipments, normalizedShippingData), where the object properties match exactly
-as in, i have my new Shipment {name=kroger,poNum=4321, ship_date=1/1/23, deliver=''}
-where NormalizedShippingData {poNum=4321,ship_date=1/1/23, deliver='1/3/23'};
-common key is poNum to get the objects to line up correctly - Ex:
-if Shipment.poNum === Normalized.poNum, Object.assign(Shipment, Normalized)
-the only *new* data for any given shipment should be the updated date fields
-and I think Object.assign will overwrite source data w/ target data
-and would thus update deliveryDate (and poNum technically) while leaving the rest alone
-
-// TODO dig up the 'instantiate a Class with n number of params... got that saved in my old ltlDashboard thing I think
-*/
-
-// proof of concept
-// I CAN use Object.assign() to update by Shipment object
-// using a Normalized object.
-// Shipment and Normalized need to have matching keys
-// so I should source my keys directly from my Dataset headers
-// with some considerations ease of access (aka using _ instead of spaces)
-// function shipmentTest() {
-//   const shipment = {
-//     'Internal_ID': '12345',
-//     'DC_Name': 'kroger',
-//     'PO_#': 'P9876',
-//     'Scheduled_Ship_Date': '1/1/23',
-//     'Delivery_Date': ''
-//   }
-
-//   const normalized = {
-//     'PO_#': 'P9876',
-//     'Actual_Ship_Date': '1/1/23',
-//     'Delivery_Date': '1/4/23'
-//   }
-
-//   return Object.assign(shipment, normalized);
-// }
-
-// okay, got a decent working start here
-function createConstructor(...propNames) {
-  // TRY -- required to pass [] of strings into constructor
-  // CATCH -- if anything else is passed, explode
-  const cleanedProps = [...propNames].map((prop) => prop.replaceAll(" ", "_"));
-  return class {
-    constructor(...propValues) {
-      cleanedProps.forEach((name, idx) => {
-        this[name] = propValues[idx];
-      });
-    }
-  };
-}
-
-function testShipment() {
-  const testHeaders = ["PO #", "Actual Ship Date"];
-  // const cleanHeaders = testHeaders.map(head => head.replaceAll(" ", "_"));
-  // Logger.log(cleanHeaders);
-  const Shipment = createConstructor(...testHeaders);
-  const testShipment = new Shipment();
-  Logger.log(testShipment);
 }
