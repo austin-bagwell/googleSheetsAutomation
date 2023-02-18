@@ -6,9 +6,10 @@ const dcInfoSheet = SpreadsheetApp.getActive().getSheetByName("DC Info");
 const datasetData = SpreadsheetApp.getActive()
   .getSheetByName("Dataset")
   .getDataRange()
-  .getValues();
+  .getDisplayValues();
 const datasetHeaders = datasetData[0];
 
+// TODO - set all datatypes to string on activeShipments functions
 // TODO - so much error handling to add good god
 
 function main() {
@@ -88,7 +89,6 @@ function main() {
 
   // CONVERT NETSUITE REPORT INTO ARRAY OF OBJECTS
   // CONVERT NORMALIZED SHIPMET DETAILS INTO ARRAY OF OBJECTS
-
   // TODO
   // modify func so that it accepts N number of arrays
   // that way, I can pass it it multiple reports at once
@@ -118,52 +118,9 @@ function main() {
     return objects;
   }
 
-  // EXAMPLE WORKFLOW
-  // getting, cleaning, normalizing CSV, distilling all relevant
-  // shipment details into an array of objects
-  const gmailLabels = [
-    "estes-ship-report",
-    "odfl-ship-report",
-    "ns-ltl-report",
-  ];
-  const shipmentDetailHeaders = replaceSpaces([
-    "Actual Ship Date",
-    "Arrived At Carrier Yard",
-    "PO #",
-    "Delivery Date",
-    "PRO Number",
-    "Pallet Count",
-    "Weight",
-  ]);
-  const oldDominionReport = getCSVFromGmail(gmailLabels[1]);
-  // TODO add data cleanup to normalization function?
-  const cleanOD = cleanODReport(oldDominionReport);
-  const normalOD = normalizeODHeaders(cleanOD);
-  const netsuiteReport = getCSVFromGmail(gmailLabels[2]);
-  const normalNetsuite = normalizeNetsuiteHeaders(netsuiteReport);
-  const nsHeaders = replaceSpaces(
-    SpreadsheetApp.getActive()
-      .getSheetByName("Dataset")
-      .getDataRange()
-      .getValues()
-      .slice(0, 1)
-      .flat()
-  );
-  const odShipmentDetails = convert2DArrayToArrayOfObjects(
-    shipmentDetailHeaders,
-    normalOD
-  );
-  const netsuiteObjects = convert2DArrayToArrayOfObjects(
-    nsHeaders,
-    normalNetsuite
-  );
-  // Logger.log(odShipmentDetails[0]);
-  // Logger.log(netsuiteObjects);
-
   // CONVERT ACTIVE SHIPMENT RANGE ROWS INTO ARRAY OF OBJECTS
   // I want everything to be a string, but I'm getting different
   // datatypes from datasetRange
-
   function getOldestActiveShipmentIndex() {
     const deliveryDate = datasetHeaders.indexOf("Delivery Date");
     let indexOfOldestActiveShipment;
@@ -176,43 +133,58 @@ function main() {
     return indexOfOldestActiveShipment;
   }
 
-  // const startOfActiveShipmentRange = getOldestActiveShipmentIndex();
-  const shipmentHeaders = replaceSpaces(datasetData[0].slice(0, 13));
-  const activeShipmentsArray = datasetData.slice(
-    getOldestActiveShipmentIndex()
-  );
-  // this removes the 'right hand formula' columns from activeShipmentsArray
-  for (row of activeShipmentsArray) {
-    row.splice(shipmentHeaders.length);
-  }
-  // this adds a header row which is needed for the fancy formula
-  activeShipmentsArray.unshift(shipmentHeaders);
-
-  // Logger.log(activeShipmentsArray[0]);
-  // Logger.log(activeShipmentsArray[1]);
-
-  const activeShipmentObjects = convert2DArrayToArrayOfObjects(
-    shipmentHeaders,
-    activeShipmentsArray
-  );
-  Logger.log(activeShipmentObjects[0]);
-
   // PUSH NEW NETSUITE ORDER OBJECTS INTO ACTIVE SHIPMENTS ARRAY
-  // UPDATE ACTIVE SHIPMENT OBJECTS WITH NEW SHIPPING DETAILS
+  // UPDATE ALL ACTIVE SHIPMENT OBJECTS WITH NEW SHIPPING DETAILS
 
-  // GET ACTIVE SHIPMENTS AND CONVERT TO SHIPMENT OBJECTS
-
-  // STEP 4 - UPDATE ACTIVESHIPMENTRANGE SHIPMENT OBJECTS WITH NORMALIZED SHIPMENT DATA
-  // -- if dataset[row][colToUpdate] === '', add the normalData[colToUpdate] value (could sitll be "", just means no new data)
   // STEP 5 - PUSH UPDATED DATASET BACK TO SPREADSHEET
   // STEP 6 - AUTOFILL 'RIGHT HAND' SHEETS FORMULAS
   // -- These formulas feed the reporting dashboard stuff
 
-  // ACTUALLY CALL/USE ALL FUNCTIONS DEFINED ABOVE IN THIS AREA
-  // const gmailLabels = ['estes-ship-report','odfl-ship-report','ns-ltl-report'];
+  // ACTUALLY CALL/USE ALL FUNCTIONS DEFINED ABOVE
+  const gmailLabels = [
+    "estes-ship-report",
+    "odfl-ship-report",
+    "ns-ltl-report",
+  ];
   const estesReport = getCSVFromGmail(gmailLabels[0]);
-  // const oldDominionReport = getCSVFromGmail(gmailLabels[1])
-  // const netsuiteReport = getCSVFromGmail(gmailLabels[2]);
+  const oldDominionReport = getCSVFromGmail(gmailLabels[1]);
+  const netsuiteReport = getCSVFromGmail(gmailLabels[2]);
+
+  const cleanOD = cleanODReport(oldDominionReport);
+  const normalizedOldDominionReport = normalizeODHeaders(cleanOD);
+  const normalizedNetsuiteReport = normalizeNetsuiteHeaders(netsuiteReport);
+
+  const nsHeaders = replaceSpaces(datasetHeaders.slice(0, 7));
+  const shipmentDetailHeaders = replaceSpaces(datasetHeaders.slice(7, 13));
+  const shipmentHeaders = replaceSpaces(datasetHeaders.slice(0, 13));
+
+  const newNetsuiteOrders = convert2DArrayToArrayOfObjects(
+    nsHeaders,
+    normalizedNetsuiteReport
+  );
+  const odShipmentDetails = convert2DArrayToArrayOfObjects(
+    shipmentDetailHeaders,
+    normalizedOldDominionReport
+  );
+
+  const activeShipmentsArray = datasetData.slice(
+    getOldestActiveShipmentIndex()
+  );
+  // removes the 'right hand formula' columns from activeShipmentsArray
+  for (row of activeShipmentsArray) {
+    row.splice(shipmentHeaders.length);
+  }
+  // adds a header row which is needed for convert2DArrayToArrayOfObjects()
+  activeShipmentsArray.unshift(shipmentHeaders);
+
+  const activeShipments = convert2DArrayToArrayOfObjects(
+    shipmentHeaders,
+    activeShipmentsArray
+  );
+
+  const allActiveShipments = activeShipments.concat(newNetsuiteOrders);
+
+  // TODO update allActiveShipments with data from odShipmentDetails(&& concat/combine w/ estes details)
 }
 
 // autofills the 8 columns of sheets formulas on the right hand side of the dataset sheet.
