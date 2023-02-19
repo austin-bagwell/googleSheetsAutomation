@@ -12,8 +12,6 @@ const datasetHeaders = datasetData[0];
 // TODO
 // add normalization for Estes data
 // combine OD/Estes data into a 'normalizedShippingDetails' array for which to update shipments with
-// update the datasetData values with newly updated shipments
-// push everything back to Sheet
 // add a ton of error handling/logging
 
 function main() {
@@ -91,7 +89,58 @@ function main() {
 
   // maybe wrap header normalization && general cleanup here?
   // might be better to return a smaller initial array
-  function normalizeEstesHeaders(arr) {}
+  function normalizeEstesHeaders(arr) {
+    const headers = arr.slice(0, 1).flat();
+    const body = arr.slice(0, 1);
+
+    const poNum = headers.indexOf("Purchase Order #");
+    const shipDate = headers.indexOf("Pickup Date");
+    const pro = headers.indexOf("Pro #");
+    const arriveAtYard = headers.indexOf("Arrival Date");
+    const delivery = headers.indexOf("Delivery Date");
+    const pallets = headers.indexOf("Pallets");
+    const weight = headers.indexOf("Weight*");
+
+    // this use of an iterator with column indexes might prove usefull...
+    const columnsIWant = [
+      pro,
+      poNum,
+      shipDate,
+      arriveAtYard,
+      delivery,
+      pallets,
+      weight,
+    ];
+
+    const shorterArr = [];
+    for (const row of arr) {
+      const newRow = [];
+      const iterator = columnsIWant.values();
+      for (const i of iterator) {
+        const val = row[i];
+        newRow.push(val);
+      }
+      shorterArr.push(newRow);
+    }
+
+    // headers[weight] = 'Weight';
+
+    // [Pro #, Purchase Order #, Pickup Date, Arrival Date, Delivery Date, Pallets, Weight*]
+
+    // i'm sorry for this and will clean it later
+    const headersToKeep = shorterArr[0];
+    headersToKeep[0] = "PRO Number";
+    headersToKeep[1] = "PO #";
+    headersToKeep[2] = "Actual Ship Date";
+    headersToKeep[3] = "Arrived At Carrier Yard";
+    headersToKeep[4] = "Delivery Date";
+    headersToKeep[5] = "Pallet Count";
+    headersToKeep[6] = "Weight";
+
+    const cleanHeaders = replaceSpaces(headersToKeep);
+    shorterArr[0] = cleanHeaders;
+    return shorterArr;
+  }
 
   function convert2DArrayToArrayOfObjects(targetHeaders, arr) {
     const objects = [];
@@ -165,6 +214,7 @@ function main() {
   const cleanedOD = cleanOldDominionReport(oldDominionReport);
   const normalizedOldDominionReport = normalizeODHeaders(cleanedOD);
   const normalizedNetsuiteReport = normalizeNetsuiteHeaders(netsuiteReport);
+  const normalizedEstesReport = normalizeEstesHeaders(estesReport);
 
   const netsuiteInfoHeaders = replaceSpaces(datasetHeaders.slice(0, 7));
   const carrierInfoHeaders = replaceSpaces(datasetHeaders.slice(7, 13));
@@ -187,7 +237,14 @@ function main() {
     carrierInfoHeaders,
     normalizedOldDominionReport
   );
-  // const estesShipmentDetails = convert2DArrayToArrayOfObjects(carrierInfoHeaders, normalizedEstesReport);
+  const estesShipmentDetails = convert2DArrayToArrayOfObjects(
+    carrierInfoHeaders,
+    normalizedEstesReport
+  );
+  // make this more programatic at some point
+  const allNewShipmentDetailObjects =
+    odShipmentDetails.concat(estesShipmentDetails);
+
   const existingActiveShipments = convert2DArrayToArrayOfObjects(
     shipmentHeaders,
     activeShipmentsArray
@@ -203,7 +260,7 @@ function main() {
   // TODO combine OD/estes shipping stuff into one normalizedShippingDetails array/object array
   const updatedShipments = updateShipmentsWithNewData(
     activeShipmentsObjectArray,
-    odShipmentDetails,
+    allNewShipmentDetailObjects,
     "PO_#"
   );
 
@@ -212,10 +269,7 @@ function main() {
     shipmentHeaders
   );
 
-  // TODO put updatedShipmentsArray into the correct position in datasetRange
-
   const oldestActiveShipment = getOldestActiveShipmentIndex() + 1;
-
   // IT WORKS!
   // commenting out the final value reset so I don't keep updating shit
   // I still need to add Estes handling but whooooooo
