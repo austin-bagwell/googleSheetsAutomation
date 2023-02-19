@@ -9,9 +9,6 @@ const datasetData = SpreadsheetApp.getActive()
   .getDisplayValues();
 const datasetHeaders = datasetData[0];
 
-// TODO - set all datatypes to string on activeShipments functions
-// TODO - so much error handling to add good god
-
 function main() {
   // GET AND PARSE CSV REPORTS FROM GMAIL
   function getCSVFromGmail(label) {
@@ -87,15 +84,6 @@ function main() {
 
   function normalizeEstesHeaders(arr) {}
 
-  // CONVERT NETSUITE REPORT INTO ARRAY OF OBJECTS
-  // CONVERT NORMALIZED SHIPMET DETAILS INTO ARRAY OF OBJECTS
-  // TODO
-  // modify func so that it accepts N number of arrays
-  // that way, I can pass it it multiple reports at once
-  // and the normalized data in those reports will be
-  // all pushed into the same array at once
-  // Ex: function two2Arr(targetHeaders, ...arrays) {};
-
   function convert2DArrayToArrayOfObjects(targetHeaders, arr) {
     const objects = [];
     const headers = arr.slice(0, 1).flat();
@@ -119,8 +107,6 @@ function main() {
   }
 
   // CONVERT ACTIVE SHIPMENT RANGE ROWS INTO ARRAY OF OBJECTS
-  // I want everything to be a string, but I'm getting different
-  // datatypes from datasetRange
   function getOldestActiveShipmentIndex() {
     const deliveryDate = datasetHeaders.indexOf("Delivery Date");
     let indexOfOldestActiveShipment;
@@ -133,39 +119,34 @@ function main() {
     return indexOfOldestActiveShipment;
   }
 
-  // PUSH NEW NETSUITE ORDER OBJECTS INTO ACTIVE SHIPMENTS ARRAY
-  // UPDATE ALL ACTIVE SHIPMENT OBJECTS WITH NEW SHIPPING DETAILS
-
-  // STEP 5 - PUSH UPDATED DATASET BACK TO SPREADSHEET
-  // STEP 6 - AUTOFILL 'RIGHT HAND' SHEETS FORMULAS
-  // -- These formulas feed the reporting dashboard stuff
+  // 'PO_#' is the common key between target and source data
+  function updateShipmentsWithNewData(target, source, key) {
+    for (let existing of target) {
+      for (let updated of source) {
+        if (existing[key] === updated[key]) {
+          Object.assign(existing, updated);
+          break;
+        }
+      }
+    }
+    return target;
+  }
 
   // ACTUALLY CALL/USE ALL FUNCTIONS DEFINED ABOVE
-  const gmailLabels = [
-    "estes-ship-report",
-    "odfl-ship-report",
-    "ns-ltl-report",
-  ];
-  const estesReport = getCSVFromGmail(gmailLabels[0]);
-  const oldDominionReport = getCSVFromGmail(gmailLabels[1]);
-  const netsuiteReport = getCSVFromGmail(gmailLabels[2]);
+  const estesReport = getCSVFromGmail("estes-ship-report");
+  const oldDominionReport = getCSVFromGmail("odfl-ship-report");
+  const netsuiteReport = getCSVFromGmail("ns-ltl-report");
 
-  const cleanOD = cleanODReport(oldDominionReport);
-  const normalizedOldDominionReport = normalizeODHeaders(cleanOD);
+  const cleanedOD = cleanODReport(oldDominionReport);
+  const normalizedOldDominionReport = normalizeODHeaders(cleanedOD);
   const normalizedNetsuiteReport = normalizeNetsuiteHeaders(netsuiteReport);
 
-  const nsHeaders = replaceSpaces(datasetHeaders.slice(0, 7));
-  const shipmentDetailHeaders = replaceSpaces(datasetHeaders.slice(7, 13));
+  const netsuiteInfoHeaders = replaceSpaces(datasetHeaders.slice(0, 7));
+  const carrierInfoHeaders = replaceSpaces(datasetHeaders.slice(7, 13));
+  // must add this header back in to have a lookup key ... UGLY
+  carrierInfoHeaders.push("PO_#");
+  // fullShipmentHeaders? this defines headers for all the cols in Dataset I'm updating
   const shipmentHeaders = replaceSpaces(datasetHeaders.slice(0, 13));
-
-  const newNetsuiteOrders = convert2DArrayToArrayOfObjects(
-    nsHeaders,
-    normalizedNetsuiteReport
-  );
-  const odShipmentDetails = convert2DArrayToArrayOfObjects(
-    shipmentDetailHeaders,
-    normalizedOldDominionReport
-  );
 
   const activeShipmentsArray = datasetData.slice(
     getOldestActiveShipmentIndex()
@@ -177,14 +158,35 @@ function main() {
   // adds a header row which is needed for convert2DArrayToArrayOfObjects()
   activeShipmentsArray.unshift(shipmentHeaders);
 
-  const activeShipments = convert2DArrayToArrayOfObjects(
+  const odShipmentDetails = convert2DArrayToArrayOfObjects(
+    carrierInfoHeaders,
+    normalizedOldDominionReport
+  );
+  // const estesShipmentDetails = convert2DArrayToArrayOfObjects(carrierInfoHeaders, normalizedEstesReport);
+  const existingActiveShipments = convert2DArrayToArrayOfObjects(
     shipmentHeaders,
     activeShipmentsArray
   );
+  const newNetsuiteOrders = convert2DArrayToArrayOfObjects(
+    netsuiteInfoHeaders,
+    normalizedNetsuiteReport
+  );
 
-  const allActiveShipments = activeShipments.concat(newNetsuiteOrders);
+  const allActiveShipments = existingActiveShipments.concat(newNetsuiteOrders);
 
-  // TODO update allActiveShipments with data from odShipmentDetails(&& concat/combine w/ estes details)
+  // TODO combine OD/estes shipping stuff into one normalizedShippingDetails array/object array
+  const updatedShipments = updateShipmentsWithNewData(
+    allActiveShipments,
+    odShipmentDetails,
+    "PO_#"
+  );
+
+  // successful test, leaving here for quick reference if needed
+  // UNFI SARASOTA 7429351 looking to update arrival date to 2/11/23
+  // const testSarasota = [allActiveShipments.slice(-7)[0]];
+  // Logger.log(testSarasota)
+  // Logger.log(updateShipmentsWithNewData(testSarasota,odShipmentDetails,'PO_#'));
+  // Logger.log(updatedShipments.slice(-7))
 }
 
 // autofills the 8 columns of sheets formulas on the right hand side of the dataset sheet.
