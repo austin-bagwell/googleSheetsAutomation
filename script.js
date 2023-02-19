@@ -9,6 +9,13 @@ const datasetData = SpreadsheetApp.getActive()
   .getDisplayValues();
 const datasetHeaders = datasetData[0];
 
+// TODO
+// add normalization for Estes data
+// combine OD/Estes data into a 'normalizedShippingDetails' array for which to update shipments with
+// update the datasetData values with newly updated shipments
+// push everything back to Sheet
+// add a ton of error handling/logging
+
 function main() {
   // GET AND PARSE CSV REPORTS FROM GMAIL
   function getCSVFromGmail(label) {
@@ -26,7 +33,7 @@ function main() {
   }
 
   // DO INITIAL DATA CLEANUP ON REPORTS -aka remove # from OD PO nums
-  function cleanODReport(arr) {
+  function cleanOldDominionReport(arr) {
     const poNumber = arr[0].indexOf("Purchase Order Number");
     const body = arr.slice(1);
     body.forEach((row) => {
@@ -82,6 +89,8 @@ function main() {
     return arr;
   }
 
+  // maybe wrap header normalization && general cleanup here?
+  // might be better to return a smaller initial array
   function normalizeEstesHeaders(arr) {}
 
   function convert2DArrayToArrayOfObjects(targetHeaders, arr) {
@@ -132,12 +141,28 @@ function main() {
     return target;
   }
 
+  function makeUpdatedShipmentsArray(shipmentObs, headers) {
+    const newRows = [];
+
+    for (const shipment of shipmentObs) {
+      const row = [];
+      for (const header of headers) {
+        // Logger.log(shipment[header])
+        row.push(shipment[header]);
+      }
+      newRows.push(row);
+    }
+
+    return newRows;
+  }
+
   // ACTUALLY CALL/USE ALL FUNCTIONS DEFINED ABOVE
   const estesReport = getCSVFromGmail("estes-ship-report");
+  // Logger.log(estesReport);
   const oldDominionReport = getCSVFromGmail("odfl-ship-report");
   const netsuiteReport = getCSVFromGmail("ns-ltl-report");
 
-  const cleanedOD = cleanODReport(oldDominionReport);
+  const cleanedOD = cleanOldDominionReport(oldDominionReport);
   const normalizedOldDominionReport = normalizeODHeaders(cleanedOD);
   const normalizedNetsuiteReport = normalizeNetsuiteHeaders(netsuiteReport);
 
@@ -172,21 +197,35 @@ function main() {
     normalizedNetsuiteReport
   );
 
-  const allActiveShipments = existingActiveShipments.concat(newNetsuiteOrders);
+  const activeShipmentsObjectArray =
+    existingActiveShipments.concat(newNetsuiteOrders);
 
   // TODO combine OD/estes shipping stuff into one normalizedShippingDetails array/object array
   const updatedShipments = updateShipmentsWithNewData(
-    allActiveShipments,
+    activeShipmentsObjectArray,
     odShipmentDetails,
     "PO_#"
   );
 
-  // successful test, leaving here for quick reference if needed
-  // UNFI SARASOTA 7429351 looking to update arrival date to 2/11/23
-  // const testSarasota = [allActiveShipments.slice(-7)[0]];
-  // Logger.log(testSarasota)
-  // Logger.log(updateShipmentsWithNewData(testSarasota,odShipmentDetails,'PO_#'));
-  // Logger.log(updatedShipments.slice(-7))
+  const updatedShipmentsArray = makeUpdatedShipmentsArray(
+    updatedShipments,
+    shipmentHeaders
+  );
+
+  // TODO put updatedShipmentsArray into the correct position in datasetRange
+
+  const oldestActiveShipment = getOldestActiveShipmentIndex() + 1;
+
+  // IT WORKS!
+  // commenting out the final value reset so I don't keep updating shit
+  // I still need to add Estes handling but whooooooo
+  const rangeOfShipmentsToUpdate = datasetSheet.getRange(
+    oldestActiveShipment,
+    1,
+    updatedShipmentsArray.length,
+    shipmentHeaders.length
+  );
+  rangeOfShipmentsToUpdate.setValues(updatedShipmentsArray);
 }
 
 // autofills the 8 columns of sheets formulas on the right hand side of the dataset sheet.
