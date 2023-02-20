@@ -88,33 +88,10 @@ function main() {
   }
 
   // maybe wrap header normalization && general cleanup here?
-  // might be better to return a smaller initial array//   rawHeaders = [
-  //     "Purchase Order #",
-  //     "Weight*""
-  //   ],
-  //  normalizedHeaders = [],
-  // indexRawHeaders = [],
-  //  indexNormalizedHeaders = [],
-  // }
-  // normalHeaders = headers of the 'columns' I want data from, with 'normalized' names
-  // aka these headers match the headers in the main dataset sheet
-  // rawHeaders = as sent by carrier, that correspond to the data points I want
-  // EX: raw = 'Total Weight' normal = 'Weight'
-  class NormalizationConfig {
-    constructor(rawHeaders = [], nrmlHeaders = []) {
-      this.rawHeaders = rawHeaders;
-      this.rawIndexes = rawHeaders.values();
-      this.normalHeaders = nrmlHeaders;
-      this.normalIndexes = nrmlHeaders.values();
-    }
-  }
-
-  function normalizeEstesHeaders(arr, config) {
+  // might be better to return a smaller initial array
+  function normalizeEstesHeaders(arr) {
     const headers = arr.slice(0, 1).flat();
     const body = arr.slice(0, 1);
-
-    const rawHeaders = config.rawHeaders;
-    const rawIndexes = rawHeaders.values();
 
     const poNum = headers.indexOf("Purchase Order #");
     const shipDate = headers.indexOf("Pickup Date");
@@ -124,8 +101,7 @@ function main() {
     const pallets = headers.indexOf("Pallets");
     const weight = headers.indexOf("Weight*");
 
-    // this use of an iterator with column indexes might prove usefull...
-    const normalHeaders = [
+    const columnsIWant = [
       pro,
       poNum,
       shipDate,
@@ -138,17 +114,13 @@ function main() {
     const shorterArr = [];
     for (const row of arr) {
       const newRow = [];
-      const iterator = normalHeaders.values();
+      const iterator = columnsIWant.values();
       for (const i of iterator) {
         const val = row[i];
         newRow.push(val);
       }
       shorterArr.push(newRow);
     }
-
-    // headers[weight] = 'Weight';
-
-    // [Pro #, Purchase Order #, Pickup Date, Arrival Date, Delivery Date, Pallets, Weight*]
 
     // i'm sorry for this and will clean it later
     const headersToKeep = shorterArr[0];
@@ -191,15 +163,14 @@ function main() {
   function getOldestActiveShipmentIndex() {
     const deliveryDate = datasetHeaders.indexOf("Delivery Date");
     let indexOfOldestActiveShipment;
-    for (let i = 0; i < datasetData.length; i++) {
-      if (datasetData[i][deliveryDate] === "") {
+    for (const [i, row] of datasetData.entries()) {
+      if (row[deliveryDate] === "") {
         indexOfOldestActiveShipment = i;
         break;
       }
     }
     return indexOfOldestActiveShipment;
   }
-
   // 'PO_#' is the common key between target and source data
   function updateShipmentsWithNewData(target, source, key) {
     for (let existing of target) {
@@ -303,29 +274,4 @@ function main() {
     shipmentHeaders.length
   );
   rangeOfShipmentsToUpdate.setValues(updatedShipmentsArray);
-}
-
-// autofills the 8 columns of sheets formulas on the right hand side of the dataset sheet.
-// # of columns is hardcoded at the moment, if formulas are added this will need to be updated
-function fillRightHandFormulas() {
-  const firstRow = datasetSheet.getRange(["N2:U2"]);
-  const formulaRows = datasetSheet.getRange(
-    2,
-    14,
-    datasetSheet.getLastRow() - 2,
-    8
-  );
-  firstRow.autoFill(formulaRows, SpreadsheetApp.AutoFillSeries.DEFAULT_SERIES);
-}
-
-// Get rid of formulas from Netsuite and Shipping details section while keeping values
-// ie. locks in the data for first 11 columns without any pesky formulas sticking around
-// will be the last function called
-function pasteValsOnlyEquiv() {
-  const rngCopyValsOnly = datasetSheet
-    .getRange(2, 1, datasetSheet.getLastRow(), 13)
-    .getValues();
-  datasetSheet
-    .getRange(2, 1, datasetSheet.getLastRow(), 13)
-    .setValues(rngCopyValsOnly);
 }

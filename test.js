@@ -29,6 +29,7 @@ function normalizeCSVReport(report = [[]], config = {}) {
   };
 
   const rawIndexes = getRawIndexes();
+
   const normalizedReport = [];
   for (const row of report) {
     const normalizedRow = [];
@@ -45,10 +46,10 @@ function normalizeCSVReport(report = [[]], config = {}) {
   return normalizedReport;
 }
 
-// I think it will be important that the indexes of these two arrays line up
-// EG raw Purchase Order will need to line up with normalized PO_#, etc.
-// FIXME indexes of raw/normal headers must line up 1:1
-// will be replaced as raw[i] === normal[i]
+// TODO - add note/user guide re: these header arrays
+// indexes of raw/normal headers must line up 1:1
+// headers will will be replaced as raw[i] === normal[i]
+// Eg. normalHeader[i] needs to correspond to rawHeader[i]
 const testRawHeaders = ["Purchase Order Number", "PRO NUMBER", "pallets/skids"];
 const testNormalHeaders = ["PO_#", "PRO_#", "Pallet_Count"];
 
