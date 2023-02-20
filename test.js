@@ -29,13 +29,10 @@ function normalizeCSVReport(report = [[]], config = {}) {
   };
 
   const rawIndexes = getRawIndexes();
-  console.log(`rawIndexes: `, rawIndexes);
-  // this should return values just for columns I want to keep
   const normalizedReport = [];
   for (const row of report) {
     const normalizedRow = [];
     const iterator = rawIndexes;
-    // const iterator = [0, 1, 2];
     for (const i of iterator) {
       const val = row[i];
       normalizedRow.push(val);
@@ -43,9 +40,8 @@ function normalizeCSVReport(report = [[]], config = {}) {
     normalizedReport.push(normalizedRow);
   }
 
-  // still need to change all the raw headers into normalized headers
-  normalizedReport[0].forEach((header, i) => (header = normalHeaders[i]));
-
+  //   replace remaining raw headers with normalized headers
+  normalizedReport.splice(0, 1, normalHeaders);
   return normalizedReport;
 }
 
