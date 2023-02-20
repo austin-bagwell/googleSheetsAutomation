@@ -88,10 +88,33 @@ function main() {
   }
 
   // maybe wrap header normalization && general cleanup here?
-  // might be better to return a smaller initial array
-  function normalizeEstesHeaders(arr) {
+  // might be better to return a smaller initial array//   rawHeaders = [
+  //     "Purchase Order #",
+  //     "Weight*""
+  //   ],
+  //  normalizedHeaders = [],
+  // indexRawHeaders = [],
+  //  indexNormalizedHeaders = [],
+  // }
+  // normalHeaders = headers of the 'columns' I want data from, with 'normalized' names
+  // aka these headers match the headers in the main dataset sheet
+  // rawHeaders = as sent by carrier, that correspond to the data points I want
+  // EX: raw = 'Total Weight' normal = 'Weight'
+  class NormalizationConfig {
+    constructor(rawHeaders = [], nrmlHeaders = []) {
+      this.rawHeaders = rawHeaders;
+      this.rawIndexes = rawHeaders.values();
+      this.normalHeaders = nrmlHeaders;
+      this.normalIndexes = nrmlHeaders.values();
+    }
+  }
+
+  function normalizeEstesHeaders(arr, config) {
     const headers = arr.slice(0, 1).flat();
     const body = arr.slice(0, 1);
+
+    const rawHeaders = config.rawHeaders;
+    const rawIndexes = rawHeaders.values();
 
     const poNum = headers.indexOf("Purchase Order #");
     const shipDate = headers.indexOf("Pickup Date");
@@ -102,7 +125,7 @@ function main() {
     const weight = headers.indexOf("Weight*");
 
     // this use of an iterator with column indexes might prove usefull...
-    const columnsIWant = [
+    const normalHeaders = [
       pro,
       poNum,
       shipDate,
@@ -115,7 +138,7 @@ function main() {
     const shorterArr = [];
     for (const row of arr) {
       const newRow = [];
-      const iterator = columnsIWant.values();
+      const iterator = normalHeaders.values();
       for (const i of iterator) {
         const val = row[i];
         newRow.push(val);
