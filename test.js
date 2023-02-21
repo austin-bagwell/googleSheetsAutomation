@@ -14,7 +14,6 @@ const datasetHeaders = datasetData[0];
 // add a ton of error handling/logging
 
 function main() {
-  // GET AND PARSE CSV REPORTS FROM GMAIL
   function getCSVFromGmail(label) {
     const gmailThread = GmailApp.search(`label:${label}`, 0, 1)[0];
     const attachments = gmailThread.getMessages()[0].getAttachments();
@@ -77,12 +76,8 @@ function main() {
     return normalizedReport;
   }
 
-  // NORMALIZE REPORT HEADERS
-  function replaceSpaces(arr) {
-    return arr.map((header) => header.replaceAll(" ", "_"));
-  }
-
-  function convert2DArrayToArrayOfObjects(targetHeaders, arr) {
+  // targetHeaders become object keys
+  function convert2DArrayToArrayOfObjects(targetHeaders = [], arr = [[]]) {
     const objects = [];
     const headers = arr.slice(0, 1).flat();
     const body = arr.slice(1);
@@ -104,18 +99,6 @@ function main() {
     return objects;
   }
 
-  // CONVERT ACTIVE SHIPMENT RANGE ROWS INTO ARRAY OF OBJECTS
-  function getOldestActiveShipmentIndex() {
-    const deliveryDate = datasetHeaders.indexOf("Delivery Date");
-    let indexOfOldestActiveShipment;
-    for (const [i, row] of datasetData.entries()) {
-      if (row[deliveryDate] === "") {
-        indexOfOldestActiveShipment = i;
-        break;
-      }
-    }
-    return indexOfOldestActiveShipment;
-  }
   // 'PO_#' is the common key between target and source data
   function updateShipmentsWithNewData(target, source, key) {
     for (let existing of target) {
@@ -129,13 +112,12 @@ function main() {
     return target;
   }
 
-  function makeUpdatedShipmentsArray(shipmentObs, headers) {
+  function make2DArrayFromArrayOfObjects(shipmentObs, headers) {
     const newRows = [];
 
     for (const shipment of shipmentObs) {
       const row = [];
       for (const header of headers) {
-        // Logger.log(shipment[header])
         row.push(shipment[header]);
       }
       newRows.push(row);
@@ -144,14 +126,21 @@ function main() {
     return newRows;
   }
 
-  // CUSTOMER SPECIFIC DATA CLEANUP FUNCTIONS
-  function cleanOldDominionReport(arr) {
-    const poNumber = arr[0].indexOf("PO_#");
-    const body = arr.slice(1);
-    body.forEach((row) => {
-      row[poNumber] = row[poNumber].replaceAll("#", "");
-    });
-    return arr;
+  // UTILITY FUNCTIONS
+  function replaceSpaces(arr) {
+    return arr.map((header) => header.replaceAll(" ", "_"));
+  }
+
+  function getIndexOldestUndeliveredShipment() {
+    const deliveryDate = datasetHeaders.indexOf("Delivery Date");
+    let index;
+    for (const [i, row] of datasetData.entries()) {
+      if (row[deliveryDate] === "") {
+        index = i;
+        break;
+      }
+    }
+    return index;
   }
 
   // DEFINE CONFIGS FOR EACH CSV REPORT
@@ -175,6 +164,7 @@ function main() {
     netsuiteNormalizedHeaders
   );
 
+  // THESE ARE THE HEADERS NEEDED FOR ANY CARRIER REPORTS
   const carrierNormalizedHeaders = replaceSpaces([
     "PO #",
     "Actual Ship Date",
@@ -215,6 +205,17 @@ function main() {
     carrierNormalizedHeaders
   );
 
+  // REPORT-SPECIFIC DATA CLEANUP FUNCTIONS
+  function cleanOldDominionReport(arr) {
+    const poNumber = arr[0].indexOf("PO_#");
+    const body = arr.slice(1);
+    body.forEach((row) => {
+      row[poNumber] = row[poNumber].replaceAll("#", "");
+    });
+    return arr;
+  }
+
+  // CREATE NORMALIZED REPORTS
   const normalizedNetsuiteReport = normalizeCSVReport(
     netsuiteReport,
     netsuiteConfig
@@ -226,69 +227,60 @@ function main() {
   );
   const normalizedEstesReport = normalizeCSVReport(estesReport, estesConfig);
 
-  const netsuiteInfoHeaders = replaceSpaces(datasetHeaders.slice(0, 7));
-  const carrierInfoHeaders = replaceSpaces(datasetHeaders.slice(7, 13));
-  // must add this header back in to have a lookup key ... UGLY
-  carrierInfoHeaders.push("PO_#");
-  // fullShipmentHeaders? this defines headers for all the cols in Dataset I'm updating
+  // TODO
+  // find more descriptive name for 'shipmentHeaders' and other 'shipment' stuff
   const shipmentHeaders = replaceSpaces(datasetHeaders.slice(0, 13));
 
-  const activeShipmentsArray = datasetData.slice(
-    getOldestActiveShipmentIndex()
+  const existingUndeliveredShipmentsArray = datasetData.slice(
+    getIndexOldestUndeliveredShipment()
   );
-  // removes the 'right hand formula' columns from activeShipmentsArray
-  for (row of activeShipmentsArray) {
+  // removes the 'right hand formula' columns from existingUndeliveredShipmentsArray
+  for (row of existingUndeliveredShipmentsArray) {
     row.splice(shipmentHeaders.length);
   }
   // adds a header row which is needed for convert2DArrayToArrayOfObjects()
-  activeShipmentsArray.unshift(shipmentHeaders);
+  existingUndeliveredShipmentsArray.unshift(shipmentHeaders);
 
-  const odShipmentDetails = convert2DArrayToArrayOfObjects(
-    carrierInfoHeaders,
-    normalizedOldDominionReport
-  );
-
-  const estesShipmentDetails = convert2DArrayToArrayOfObjects(
-    carrierInfoHeaders,
-    normalizedEstesReport
-  );
-  // make this more programatic at some point
-  const allNewShipmentDetailObjects =
-    odShipmentDetails.concat(estesShipmentDetails);
-
-  const existingActiveShipments = convert2DArrayToArrayOfObjects(
+  const existingUndeliveredShipments = convert2DArrayToArrayOfObjects(
     shipmentHeaders,
-    activeShipmentsArray
+    existingUndeliveredShipmentsArray
   );
   const newNetsuiteOrders = convert2DArrayToArrayOfObjects(
-    netsuiteInfoHeaders,
+    netsuiteNormalizedHeaders,
     normalizedNetsuiteReport
   );
+  const allActiveShipments =
+    existingUndeliveredShipments.concat(newNetsuiteOrders);
 
-  const activeShipmentsObjectArray =
-    existingActiveShipments.concat(newNetsuiteOrders);
+  // TODO - make more programtic. adding a third carrier would be a little verbose
+  // create two arrays of objects that describe the shipping info provide by carrier reports
+  // concat them together to create one array of carrier update data
+  const odShipmentDetails = convert2DArrayToArrayOfObjects(
+    carrierNormalizedHeaders,
+    normalizedOldDominionReport
+  );
+  const estesShipmentDetails = convert2DArrayToArrayOfObjects(
+    carrierNormalizedHeaders,
+    normalizedEstesReport
+  );
+  const updatedCarrierData = odShipmentDetails.concat(estesShipmentDetails);
 
-  // TODO combine OD/estes shipping stuff into one normalizedShippingDetails array/object array
   const updatedShipments = updateShipmentsWithNewData(
-    activeShipmentsObjectArray,
-    allNewShipmentDetailObjects,
+    allActiveShipments,
+    updatedCarrierData,
     "PO_#"
   );
-
-  const updatedShipmentsArray = makeUpdatedShipmentsArray(
+  const updatedShipmentsArray = make2DArrayFromArrayOfObjects(
     updatedShipments,
     shipmentHeaders
   );
 
-  const oldestActiveShipment = getOldestActiveShipmentIndex() + 1;
-  // IT WORKS!
-  // commenting out the final value reset so I don't keep updating shit
-  // I still need to add Estes handling but whooooooo
+  const oldestActiveShipmentRow = getIndexOldestUndeliveredShipment() + 1;
   const rangeOfShipmentsToUpdate = datasetSheet.getRange(
-    oldestActiveShipment,
+    oldestActiveShipmentRow,
     1,
     updatedShipmentsArray.length,
     shipmentHeaders.length
   );
-  // rangeOfShipmentsToUpdate.setValues(updatedShipmentsArray);
+  rangeOfShipmentsToUpdate.setValues(updatedShipmentsArray);
 }
